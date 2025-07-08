@@ -7,6 +7,10 @@ import os
 # Import models and Base for table creation
 from .models import Base
 
+# Routers
+from .auth import auth_router
+from .users import users_router
+
 # Database URL from environment variable or default (job_portal_database container provides SQLITE_DB)
 DATABASE_URL = os.environ.get("SQLITE_DB", "sqlite:///./job_portal.db")
 
@@ -16,7 +20,13 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # Create tables if they do not exist
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI()
+app = FastAPI(
+    title="IT JobConnect API",
+    description="Backend API server for job postings, user authentication, applicant profiles, employer data, and applications management.",
+    version="0.1.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 app.add_middleware(
     CORSMiddleware,
@@ -35,6 +45,11 @@ def get_db():
     finally:
         db.close()
 
-@app.get("/")
+@app.get("/", tags=["Health"])
 def health_check():
+    """Health check endpoint."""
     return {"message": "Healthy"}
+
+# Register routers
+app.include_router(auth_router)
+app.include_router(users_router)
