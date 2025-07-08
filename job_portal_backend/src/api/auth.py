@@ -137,22 +137,35 @@ def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(
     summary="Register as job-seeker (applicant)",
     description="Create a new applicant account and returns a JWT token."
 )
+# PUBLIC_INTERFACE
 def register_applicant(reg: ApplicantRegister, db: Session = Depends(get_db)):
-    if db.query(Applicant).filter(Applicant.email == reg.email).first():
-        raise HTTPException(status_code=409, detail="Email already registered")
-    applicant = Applicant(
-        name=reg.name,
-        email=reg.email,
-        hashed_password=get_password_hash(reg.password),
-        summary=reg.summary,
-        skills=reg.skills,
-        experience=reg.experience,
-    )
-    db.add(applicant)
-    db.commit()
-    db.refresh(applicant)
-    token = create_access_token(data={"sub": reg.email, "role": "applicant"})
-    return Token(access_token=token, token_type="bearer")
+    """
+    Register a new applicant profile. Returns JWT token.
+    Handles DB constraint errors and ensures robust error handling.
+    """
+    try:
+        if db.query(Applicant).filter(Applicant.email == reg.email).first():
+            raise HTTPException(status_code=409, detail="Email already registered")
+        applicant = Applicant(
+            name=reg.name,
+            email=reg.email,
+            hashed_password=get_password_hash(reg.password),
+            summary=reg.summary,
+            skills=reg.skills,
+            experience=reg.experience,
+        )
+        db.add(applicant)
+        db.commit()
+        db.refresh(applicant)
+        token = create_access_token(data={"sub": reg.email, "role": "applicant"})
+        return Token(access_token=token, token_type="bearer")
+    except Exception as e:
+        db.rollback()
+        # Optionally log error here with more details, sensitive info redacted
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not register applicant: {str(e)}"
+        )
 
 @auth_router.post(
     "/register/employer",
@@ -160,21 +173,33 @@ def register_applicant(reg: ApplicantRegister, db: Session = Depends(get_db)):
     summary="Register as employer",
     description="Create a new employer account and returns a JWT token."
 )
+# PUBLIC_INTERFACE
 def register_employer(reg: EmployerRegister, db: Session = Depends(get_db)):
-    if db.query(Employer).filter(Employer.email == reg.email).first():
-        raise HTTPException(status_code=409, detail="Email already registered")
-    employer = Employer(
-        name=reg.name,
-        email=reg.email,
-        hashed_password=get_password_hash(reg.password),
-        company_name=reg.company_name,
-        company_website=reg.company_website,
-    )
-    db.add(employer)
-    db.commit()
-    db.refresh(employer)
-    token = create_access_token(data={"sub": reg.email, "role": "employer"})
-    return Token(access_token=token, token_type="bearer")
+    """
+    Register a new employer user. Returns JWT token.
+    Handles DB constraint errors and ensures robust error handling.
+    """
+    try:
+        if db.query(Employer).filter(Employer.email == reg.email).first():
+            raise HTTPException(status_code=409, detail="Email already registered")
+        employer = Employer(
+            name=reg.name,
+            email=reg.email,
+            hashed_password=get_password_hash(reg.password),
+            company_name=reg.company_name,
+            company_website=reg.company_website,
+        )
+        db.add(employer)
+        db.commit()
+        db.refresh(employer)
+        token = create_access_token(data={"sub": reg.email, "role": "employer"})
+        return Token(access_token=token, token_type="bearer")
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Could not register employer: {str(e)}"
+        )
 
 # Login: OAuth2 password-bearer
 @auth_router.post(
