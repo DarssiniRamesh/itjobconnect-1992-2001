@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 from typing import List, Optional, Literal
 from datetime import datetime
 
-from .main import get_db
+from .db import get_db
 from .models import Job, Application
 from .auth import get_current_user
 

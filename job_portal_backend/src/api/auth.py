@@ -21,7 +21,7 @@ import os
 import jwt
 from passlib.context import CryptContext
 
-from .main import get_db
+from .db import get_db
 from .models import Applicant, Employer
 
 JWT_SECRET = os.getenv("JWT_SECRET", "supersecretjwtkey!change_this!")
