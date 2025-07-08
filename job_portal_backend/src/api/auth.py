@@ -214,8 +214,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     Ensures robust error handling for common auth problems (user not found, invalid password, etc).
     Always returns 401 for authentication issues, never 500.
     """
+    # Add explicit logging for all internal authentication errors, so we can trace root cause in server log
+    import sys
+    import traceback
+
     try:
         if not form_data.username or not form_data.password:
+            print("[/auth/login] Missing username or password", file=sys.stderr)
             raise HTTPException(status_code=400, detail="Missing username or password")
         # Both applicant and employer may exist, but only authenticate one
         applicant = db.query(Applicant).filter(Applicant.email == form_data.username).first()
@@ -226,38 +231,48 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         if applicant:
             # guard against missing or blank hash
             if not applicant.hashed_password:
+                print(f"[/auth/login] Applicant found but missing hashed_password for email={form_data.username}", file=sys.stderr)
                 raise HTTPException(status_code=401, detail="Invalid credentials")
             try:
                 if verify_password(form_data.password, applicant.hashed_password):
                     user, detected_role = applicant, "applicant"
-            except Exception:
-                # bcrypt/hashlib error or corrupted hash
+            except Exception as ex:
+                print(f"[/auth/login] Password hash error for applicant email={form_data.username}: {ex}", file=sys.stderr)
+                print(traceback.format_exc(), file=sys.stderr)
                 raise HTTPException(status_code=401, detail="Invalid credentials")
         # Check employer if not applicant
         if not user and employer:
             if not employer.hashed_password:
+                print(f"[/auth/login] Employer found but missing hashed_password for email={form_data.username}", file=sys.stderr)
                 raise HTTPException(status_code=401, detail="Invalid credentials")
             try:
                 if verify_password(form_data.password, employer.hashed_password):
                     user, detected_role = employer, "employer"
-            except Exception:
+            except Exception as ex:
+                print(f"[/auth/login] Password hash error for employer email={form_data.username}: {ex}", file=sys.stderr)
+                print(traceback.format_exc(), file=sys.stderr)
                 raise HTTPException(status_code=401, detail="Invalid credentials")
 
         if not user:
+            print(f"[/auth/login] No applicant or employer found or password invalid for email={form_data.username}", file=sys.stderr)
             raise HTTPException(status_code=401, detail="Invalid credentials")
         
         try:
             token = create_access_token(data={"sub": user.email, "role": detected_role})
-        except Exception:
+        except Exception as ex:
+            print(f"[/auth/login] JWT creation error for email={form_data.username}, role={detected_role}: {ex}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
             # JWT encode error: treat as server issue, but mask details for security
             raise HTTPException(status_code=500, detail="Could not create authentication token")
         
+        print(f"[/auth/login] Successful login for {detected_role} email={user.email}", file=sys.stderr)
         return Token(access_token=token, token_type="bearer")
     except HTTPException as http_exc:
         raise http_exc
-    except Exception:
-        # Log exception here if you have a logging facility (omitted for brevity)
-        # print("Login error: ", str(e))  # Do not leak details in client!
+    except Exception as e:
+        # Print stack trace for debugging -- this will let us see the auth error in backend logs
+        print(f"[/auth/login] Unhandled Exception for email={getattr(form_data, 'username', None)}: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
         raise HTTPException(status_code=500, detail="Internal authentication error")
 
 # Profile view/update
