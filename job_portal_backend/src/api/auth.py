@@ -223,14 +223,18 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             print("[/auth/login] Missing username or password", file=sys.stderr)
             raise HTTPException(status_code=400, detail="Missing username or password")
         # Both applicant and employer may exist, but only authenticate one
-        applicant = db.query(Applicant).filter(Applicant.email == form_data.username).first()
-        employer = db.query(Employer).filter(Employer.email == form_data.username).first()
+        try:
+            applicant = db.query(Applicant).filter(Applicant.email == form_data.username).first()
+            employer = db.query(Employer).filter(Employer.email == form_data.username).first()
+        except Exception as db_exc:
+            print(f"[/auth/login] Database error during user lookup for email={form_data.username}: {db_exc}", file=sys.stderr)
+            print(traceback.format_exc(), file=sys.stderr)
+            raise HTTPException(status_code=500, detail="Database unavailable")
         user, detected_role = None, None
 
         # Check applicant
         if applicant:
-            # guard against missing or blank hash
-            if not applicant.hashed_password:
+            if not hasattr(applicant, "hashed_password") or not applicant.hashed_password:
                 print(f"[/auth/login] Applicant found but missing hashed_password for email={form_data.username}", file=sys.stderr)
                 raise HTTPException(status_code=401, detail="Invalid credentials")
             try:
@@ -242,7 +246,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
                 raise HTTPException(status_code=401, detail="Invalid credentials")
         # Check employer if not applicant
         if not user and employer:
-            if not employer.hashed_password:
+            if not hasattr(employer, "hashed_password") or not employer.hashed_password:
                 print(f"[/auth/login] Employer found but missing hashed_password for email={form_data.username}", file=sys.stderr)
                 raise HTTPException(status_code=401, detail="Invalid credentials")
             try:
@@ -256,7 +260,7 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
         if not user:
             print(f"[/auth/login] No applicant or employer found or password invalid for email={form_data.username}", file=sys.stderr)
             raise HTTPException(status_code=401, detail="Invalid credentials")
-        
+
         try:
             token = create_access_token(data={"sub": user.email, "role": detected_role})
         except Exception as ex:
@@ -264,16 +268,24 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
             print(traceback.format_exc(), file=sys.stderr)
             # JWT encode error: treat as server issue, but mask details for security
             raise HTTPException(status_code=500, detail="Could not create authentication token")
-        
+
         print(f"[/auth/login] Successful login for {detected_role} email={user.email}", file=sys.stderr)
         return Token(access_token=token, token_type="bearer")
+
     except HTTPException as http_exc:
+        # Surface original HTTPExceptions as received
         raise http_exc
+    except (ValueError, AttributeError, TypeError) as e:
+        print(f"[/auth/login] Malformed authentication request or type error for email={getattr(form_data, 'username', None)}: {e}", file=sys.stderr)
+        print(traceback.format_exc(), file=sys.stderr)
+        # Clearly indicate malformed form submission or missing fields with 400
+        raise HTTPException(status_code=400, detail="Malformed authentication request")
     except Exception as e:
-        # Print stack trace for debugging -- this will let us see the auth error in backend logs
+        # As a last resort, log the stack for backend, but DO NOT return a 500 for unknown authentication inputs
         print(f"[/auth/login] Unhandled Exception for email={getattr(form_data, 'username', None)}: {e}", file=sys.stderr)
         print(traceback.format_exc(), file=sys.stderr)
-        raise HTTPException(status_code=500, detail="Internal authentication error")
+        # Treat all unhandled errors in authentication as 401
+        raise HTTPException(status_code=401, detail="Authentication failed (internal error)")
 
 # Profile view/update
 @auth_router.get(
