@@ -10,6 +10,7 @@ from .models import Base
 # Routers
 from .auth import auth_router
 from .users import users_router
+from .jobs import jobs_router
 
 # Database URL from environment variable or default (job_portal_database container provides SQLITE_DB)
 DATABASE_URL = os.environ.get("SQLITE_DB", "sqlite:///./job_portal.db")
@@ -53,3 +54,4 @@ def health_check():
 # Register routers
 app.include_router(auth_router)
 app.include_router(users_router)
+app.include_router(jobs_router)
