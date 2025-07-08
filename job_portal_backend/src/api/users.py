@@ -6,7 +6,7 @@ Includes endpoints for administrative functions and listing/filtering users (exc
 
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from .main import get_db
+from .db import get_db
 from .models import Applicant, Employer
 
 users_router = APIRouter(prefix="/users", tags=["Users"])
