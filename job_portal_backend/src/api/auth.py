@@ -209,18 +209,56 @@ def register_employer(reg: EmployerRegister, db: Session = Depends(get_db)):
     description="Logs in as employer or applicant and returns a JWT for API use.",
 )
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # Try both applicant and employer if not specified
-    user, detected_role = None, None
-    applicant = db.query(Applicant).filter(Applicant.email == form_data.username).first()
-    employer = db.query(Employer).filter(Employer.email == form_data.username).first()
-    if applicant and verify_password(form_data.password, applicant.hashed_password):
-        user, detected_role = applicant, "applicant"
-    elif employer and verify_password(form_data.password, employer.hashed_password):
-        user, detected_role = employer, "employer"
-    else:
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    token = create_access_token(data={"sub": user.email, "role": detected_role})
-    return Token(access_token=token, token_type="bearer")
+    """
+    Secure login endpoint handling both applicants and employers.
+    Ensures robust error handling for common auth problems (user not found, invalid password, etc).
+    Always returns 401 for authentication issues, never 500.
+    """
+    try:
+        if not form_data.username or not form_data.password:
+            raise HTTPException(status_code=400, detail="Missing username or password")
+        # Both applicant and employer may exist, but only authenticate one
+        applicant = db.query(Applicant).filter(Applicant.email == form_data.username).first()
+        employer = db.query(Employer).filter(Employer.email == form_data.username).first()
+        user, detected_role = None, None
+
+        # Check applicant
+        if applicant:
+            # guard against missing or blank hash
+            if not applicant.hashed_password:
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+            try:
+                if verify_password(form_data.password, applicant.hashed_password):
+                    user, detected_role = applicant, "applicant"
+            except Exception:
+                # bcrypt/hashlib error or corrupted hash
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+        # Check employer if not applicant
+        if not user and employer:
+            if not employer.hashed_password:
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+            try:
+                if verify_password(form_data.password, employer.hashed_password):
+                    user, detected_role = employer, "employer"
+            except Exception:
+                raise HTTPException(status_code=401, detail="Invalid credentials")
+
+        if not user:
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        try:
+            token = create_access_token(data={"sub": user.email, "role": detected_role})
+        except Exception:
+            # JWT encode error: treat as server issue, but mask details for security
+            raise HTTPException(status_code=500, detail="Could not create authentication token")
+        
+        return Token(access_token=token, token_type="bearer")
+    except HTTPException as http_exc:
+        raise http_exc
+    except Exception:
+        # Log exception here if you have a logging facility (omitted for brevity)
+        # print("Login error: ", str(e))  # Do not leak details in client!
+        raise HTTPException(status_code=500, detail="Internal authentication error")
 
 # Profile view/update
 @auth_router.get(
