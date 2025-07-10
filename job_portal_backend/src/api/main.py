@@ -1,3 +1,13 @@
+"""
+job_portal_backend - FastAPI backend API for IT Job Portal.
+
+This backend server provides RESTful APIs for user authentication,
+job posting and management, applicant and employer profiles, and
+application management for IT sector job seekers and employers.
+
+See /docs for auto-generated interactive API documentation.
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
